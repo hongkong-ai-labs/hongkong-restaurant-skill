@@ -1,0 +1,13 @@
+services:
+  stdio:
+    build: .
+    image: hkrestaurant:local
+    stdin_open: true
+    entrypoint: ["hkrestaurant"]
+    command: ["mcp"]
+
+  cli:
+    profiles: ["cli"]
+    build: .
+    image: hkrestaurant:local
+    command: ["--help"]
