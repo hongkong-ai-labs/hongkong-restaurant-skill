@@ -39,7 +39,13 @@ async fn dispatch(client: &Client, request: &Value) -> Option<Value> {
     let id = request.get("id").cloned();
     let method = match request.get("method").and_then(Value::as_str) {
         Some(method) => method,
-        None => return Some(error_response(id, -32600, "invalid request: missing method")),
+        None => {
+            return Some(error_response(
+                id,
+                -32600,
+                "invalid request: missing method",
+            ));
+        }
     };
     if method.starts_with("notifications/") {
         return None;
@@ -128,7 +134,10 @@ async fn call(client: &Client, id: Option<Value>, params: Option<&Value>) -> Val
         return error_response(id, -32602, "missing params");
     };
     let name = params.get("name").and_then(Value::as_str).unwrap_or("");
-    let args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
+    let args = params
+        .get("arguments")
+        .cloned()
+        .unwrap_or_else(|| json!({}));
     let outcome: Result<Value> = async {
         match name {
             "search_restaurant_licences" => {

@@ -174,9 +174,7 @@ async fn main() -> Result<()> {
             if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lng) {
                 bail!("lat must be -90..90 and lng must be -180..180");
             }
-            let restaurants = client
-                .foodpanda(lat, lng, query.as_deref(), limit)
-                .await?;
+            let restaurants = client.foodpanda(lat, lng, query.as_deref(), limit).await?;
             if cli.json {
                 println!("{}", serde_json::to_string_pretty(&restaurants)?);
             } else {

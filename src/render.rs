@@ -13,7 +13,7 @@ fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
     }
     let mut out = String::new();
     out.push_str(
-        &headers
+        headers
             .iter()
             .enumerate()
             .map(|(index, header)| format!("{header:<width$}", width = widths[index]))
@@ -32,7 +32,7 @@ fn table(headers: &[&str], rows: &[Vec<String>]) -> String {
     out.push('\n');
     for row in rows {
         out.push_str(
-            &row.iter()
+            row.iter()
                 .enumerate()
                 .map(|(index, cell)| format!("{cell:<width$}", width = widths[index]))
                 .collect::<Vec<_>>()
@@ -69,9 +69,12 @@ pub fn licences(restaurants: &[Licence]) -> String {
             ]
         })
         .collect();
-    table(&["NAME", "DISTRICT", "LICENCE", "ADDRESS", "EXPIRES"], &rows)
-        .trim_end()
-        .to_string()
+    table(
+        &["NAME", "DISTRICT", "LICENCE", "ADDRESS", "EXPIRES"],
+        &rows,
+    )
+    .trim_end()
+    .to_string()
 }
 
 pub fn openrice(restaurants: &[OpenRiceRestaurant]) -> String {
@@ -90,13 +93,20 @@ pub fn openrice(restaurants: &[OpenRiceRestaurant]) -> String {
                 restaurant.review_count.to_string(),
                 restaurant.price.clone(),
                 restaurant.district.clone(),
-                if restaurant.open_now { "open" } else { "closed" }.to_string(),
+                if restaurant.open_now {
+                    "open"
+                } else {
+                    "closed"
+                }
+                .to_string(),
                 truncate(&restaurant.address, 56),
             ]
         })
         .collect();
     table(
-        &["NAME", "SCORE", "REVIEWS", "PRICE", "DISTRICT", "NOW", "ADDRESS"],
+        &[
+            "NAME", "SCORE", "REVIEWS", "PRICE", "DISTRICT", "NOW", "ADDRESS",
+        ],
         &rows,
     )
     .trim_end()

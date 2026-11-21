@@ -21,8 +21,7 @@ const FEHD_URL: &str =
     "https://www.fehd.gov.hk/english/licensing/license/text/LP_Restaurants_EN.XML";
 const OPENRICE_URL: &str = "https://www.openrice.com/api/pois";
 const FOODPANDA_URL: &str = "https://disco.deliveryhero.io/listing/api/v1/pandora/vendors";
-const BROWSER_AGENT: &str =
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36";
+const BROWSER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36";
 
 /// One FEHD licensed restaurant.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -192,8 +191,8 @@ impl Client {
         let body = self
             .get_text("fehd", FEHD_URL, Duration::from_secs(6 * 3600))
             .await?;
-        let doc: FehdDoc = quick_xml::de::from_str(&body)
-            .context("parsing FEHD restaurant licences")?;
+        let doc: FehdDoc =
+            quick_xml::de::from_str(&body).context("parsing FEHD restaurant licences")?;
         let types: HashMap<String, String> = doc
             .type_codes
             .codes
@@ -214,7 +213,11 @@ impl Client {
             .map(|record| Licence {
                 licence_no: record.licence_no.trim().to_string(),
                 name: record.name.trim().to_string(),
-                address: record.address.split_whitespace().collect::<Vec<_>>().join(" "),
+                address: record
+                    .address
+                    .split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" "),
                 district: districts
                     .get(&record.district)
                     .cloned()
@@ -246,11 +249,9 @@ impl Client {
                 "{OPENRICE_URL}?uiLang=en&uiCity=hongkong&page={page}&sortBy=Default&what={}",
                 percent_encode(query)
             );
-            let body = self
-                .get_text(&url, &url, Duration::from_secs(300))
-                .await?;
-            let value: serde_json::Value = serde_json::from_str(&body)
-                .context("decoding OpenRice search")?;
+            let body = self.get_text(&url, &url, Duration::from_secs(300)).await?;
+            let value: serde_json::Value =
+                serde_json::from_str(&body).context("decoding OpenRice search")?;
             let results = value
                 .pointer("/searchResult/paginationResult/results")
                 .and_then(serde_json::Value::as_array)
@@ -290,8 +291,8 @@ impl Client {
                 &[("x-disco-client-id", "web")],
             )
             .await?;
-        let value: serde_json::Value = serde_json::from_str(&body)
-            .context("decoding Foodpanda listing")?;
+        let value: serde_json::Value =
+            serde_json::from_str(&body).context("decoding Foodpanda listing")?;
         let items = value
             .pointer("/data/items")
             .and_then(serde_json::Value::as_array)
@@ -411,9 +412,7 @@ fn foodpanda_item(item: &serde_json::Value) -> FoodpandaRestaurant {
             .get("web_path")
             .and_then(serde_json::Value::as_str)
             .map(ToOwned::to_owned)
-            .unwrap_or_else(|| {
-                format!("https://foodpanda.hk/restaurant/{code}")
-            }),
+            .unwrap_or_else(|| format!("https://foodpanda.hk/restaurant/{code}")),
         code,
     }
 }
@@ -441,7 +440,12 @@ fn percent_encode(value: &str) -> String {
 }
 
 /// Filter the licence list by name/address, district and licence type.
-pub fn filter_licences(report: &mut LicenceReport, query: Option<&str>, district: Option<&str>, kind: Option<&str>) {
+pub fn filter_licences(
+    report: &mut LicenceReport,
+    query: Option<&str>,
+    district: Option<&str>,
+    kind: Option<&str>,
+) {
     let query = query.map(|value| value.to_lowercase());
     let district = district.map(|value| value.to_lowercase());
     let kind = kind.map(|value| value.to_lowercase());
