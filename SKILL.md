@@ -34,6 +34,30 @@ BIN="$(bash scripts/ensure-binary.sh)"
 It checks `$HKRESTAURANT_BIN`, `hkrestaurant` on `PATH`,
 `scripts/install.sh`, then `cargo build --release --locked` in the repo root.
 
+### Install the binary directly
+
+`npx skills add` installs the skill files. If the binary is missing, install it
+with the release installer or cargo:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/hongkong-ai-labs/hongkong-restaurant-skill/main/scripts/install.sh | sh
+# or
+cargo install --git https://github.com/hongkong-ai-labs/hongkong-restaurant-skill --locked
+```
+
+Register it with any MCP client:
+
+```bash
+npx add-mcp "$(command -v hkrestaurant) mcp" --name hongkong-restaurant -a claude-code -a codex -a cursor -y
+claude mcp add hongkong-restaurant -- hkrestaurant mcp
+codex mcp add hongkong-restaurant -- hkrestaurant mcp
+```
+
+`add-mcp` detects the client configuration files in the current project; add
+`-g` for a global install. `$(command -v hkrestaurant)` keeps the entry correct
+when the binary is on `PATH`; substitute an absolute path if your client does
+not inherit the shell `PATH`.
+
 ## CLI
 
 ```bash
@@ -54,6 +78,7 @@ $BIN foodpanda --lat 22.2793 --lng 114.1628 --limit 48 --json
 # What each source covers
 $BIN sources
 $BIN mcp
+$BIN update --check
 ```
 
 ### Trade-offs

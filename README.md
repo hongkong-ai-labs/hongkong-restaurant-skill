@@ -19,6 +19,7 @@ merchant API. This project does not scrape the app.
 
 ```bash
 npx skills add hongkong-ai-labs/hongkong-restaurant-skill
+npx skills update        # refresh the installed skill later
 ```
 
 **Prebuilt binary** — macOS (Intel or Apple silicon) and Linux (x86_64 or
@@ -34,6 +35,8 @@ curl -fsSL https://raw.githubusercontent.com/hongkong-ai-labs/hongkong-restauran
 git clone https://github.com/hongkong-ai-labs/hongkong-restaurant-skill
 cd hongkong-restaurant-skill
 cargo install --path . --locked
+# or directly from GitHub:
+cargo install --git https://github.com/hongkong-ai-labs/hongkong-restaurant-skill --locked
 # or: cargo build --release --locked   # target/release/hkrestaurant
 ```
 
@@ -42,6 +45,10 @@ Verify:
 ```console
 $ hkrestaurant --version
 ```
+
+`hkrestaurant update` detects whether the binary came from cargo, the release
+installer, a source checkout or Homebrew, and updates with that same
+method. `hkrestaurant update --check` only reports.
 
 ## CLI
 
@@ -65,6 +72,20 @@ hkrestaurant update --check
   }
 }
 ```
+
+Register it with any MCP client:
+
+```bash
+npx add-mcp "$(command -v hkrestaurant) mcp" --name hongkong-restaurant -a claude-code -a codex -a cursor -y
+claude mcp add hongkong-restaurant -- hkrestaurant mcp
+codex mcp add hongkong-restaurant -- hkrestaurant mcp
+```
+
+`add-mcp` detects the client configuration files in the current project; add
+`-g` for a global install. `$(command -v hkrestaurant)` keeps the entry correct
+when the binary is on `PATH`; substitute an absolute path if your client does
+not inherit the shell `PATH`.
+
 
 Tools: `search_restaurant_licences`, `search_openrice`,
 `list_foodpanda_vendors`, `list_restaurant_sources`.
@@ -159,6 +180,12 @@ cargo test --all --locked
 cargo clippy --all-targets --locked -- -D warnings
 cargo fmt --all -- --check
 ```
+
+`rust-toolchain.toml` pins the stable toolchain with `rustfmt` and
+`clippy`, so `rustup` sets contributors up automatically. `just doc`
+builds the API documentation. See `CONTRIBUTING.md` for the full check
+list and the signed-commit requirement.
+
 
 CI runs the same checks. Dependabot proposes weekly Cargo and GitHub Actions
 updates, and the audit workflow checks the lockfile against the RustSec

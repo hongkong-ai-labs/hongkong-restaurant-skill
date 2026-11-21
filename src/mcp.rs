@@ -225,7 +225,13 @@ async fn call(client: &Client, id: Option<Value>, params: Option<&Value>) -> Val
                 "isError": false
             }),
         ),
-        Err(error) => error_response(id, -32603, &format!("{error:#}")),
+        Err(error) => success(
+            id,
+            json!({
+                "content": [{"type": "text", "text": format!("{error:#}")}],
+                "isError": true
+            }),
+        ),
     }
 }
 
