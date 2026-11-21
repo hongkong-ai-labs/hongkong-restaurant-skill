@@ -54,6 +54,7 @@ $BIN foodpanda --lat 22.2793 --lng 114.1628 --limit 48 --json
 # What each source covers
 $BIN sources
 $BIN mcp
+$BIN update --check
 ```
 
 ### Trade-offs

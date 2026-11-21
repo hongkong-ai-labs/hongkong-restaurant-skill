@@ -10,6 +10,8 @@ use serde_json::json;
 
 use api::Client;
 
+mod update;
+
 #[derive(Parser)]
 #[command(
     name = "hkrestaurant",
@@ -71,6 +73,15 @@ enum Command {
     },
     /// Describe source coverage and known limitations
     Sources,
+    /// Update this binary using the method it was installed with
+    Update {
+        /// Only report the current version, latest release and install method
+        #[arg(long)]
+        check: bool,
+        /// Reinstall even when the current version is up to date
+        #[arg(long)]
+        force: bool,
+    },
     /// Run the MCP server over stdio
     Mcp,
 }
@@ -196,6 +207,9 @@ async fn main() -> Result<()> {
                     );
                 }
             }
+        }
+        Command::Update { check, force } => {
+            update::run(check, force)?;
         }
         Command::Mcp => unreachable!(),
     }
