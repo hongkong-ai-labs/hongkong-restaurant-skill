@@ -1,0 +1,30 @@
+[package]
+name = "hongkong-restaurant-skill"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "Hong Kong restaurant licences, OpenRice search and Foodpanda listings as a CLI and MCP server"
+license = "MIT"
+repository = "https://github.com/hongkong-ai-labs/hongkong-restaurant-skill"
+readme = "README.md"
+keywords = ["hong-kong", "restaurants", "openrice", "foodpanda", "mcp"]
+categories = ["command-line-utilities"]
+
+[[bin]]
+name = "hkrestaurant"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }
+quick-xml = { version = "0.37", features = ["serialize"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[profile.release]
+strip = "symbols"
+lto = "thin"
+codegen-units = 1
+panic = "abort"
