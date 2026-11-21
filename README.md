@@ -53,6 +53,7 @@ hkrestaurant foodpanda --lat 22.2793 --lng 114.1628
 hkrestaurant foodpanda --lat 22.2793 --lng 114.1628 --query sushi
 hkrestaurant sources
 hkrestaurant mcp
+hkrestaurant update --check
 ```
 
 ## MCP
