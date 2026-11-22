@@ -53,7 +53,7 @@ pub async fn nearby(
     Ok(out)
 }
 
-fn item_value(item: &serde_json::Value) -> FoodpandaRestaurant {
+pub(crate) fn item_value(item: &serde_json::Value) -> FoodpandaRestaurant {
     let cuisines = item
         .get("cuisines")
         .and_then(serde_json::Value::as_array)

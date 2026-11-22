@@ -243,4 +243,152 @@ mod tests {
         filter_licences(&mut report, None, None, Some("rr"));
         assert_eq!(report.count, 0);
     }
+
+    #[cfg(feature = "source-openrice")]
+    #[test]
+    fn encodes_queries() {
+        assert_eq!(
+            crate::sources::openrice::percent_encode("dim sum"),
+            "dim+sum"
+        );
+        assert_eq!(crate::sources::openrice::percent_encode("a/b"), "a%2Fb");
+    }
+
+    #[cfg(feature = "source-openrice")]
+    #[test]
+    fn parses_openrice_item() {
+        let value: serde_json::Value = serde_json::from_str(
+            r#"{"name":"Sushi N","address":"1 Road","district":{"name":"Tsim Sha Tsui"},
+                "categories":[{"name":"Japanese"}],"scoreOverall":4.5,"reviewCount":10,
+                "priceUI":"$101-200","openNow":true,"urlUI":"/en/hongkong/r-sushi-n"}"#,
+        )
+        .unwrap();
+        let item = crate::sources::openrice::item_value(&value);
+        assert_eq!(item.name, "Sushi N");
+        assert_eq!(item.district, "Tsim Sha Tsui");
+        assert_eq!(item.categories, vec!["Japanese"]);
+        assert!(item.url.starts_with("https://www.openrice.com/"));
+    }
+
+    #[cfg(feature = "source-openrice")]
+    #[test]
+    fn encodes_unicode_and_reserved_bytes() {
+        assert_eq!(crate::sources::openrice::percent_encode("é"), "%C3%A9");
+        assert_eq!(crate::sources::openrice::percent_encode("a&b"), "a%26b");
+        assert_eq!(
+            crate::sources::openrice::percent_encode("A-Z_a.z~"),
+            "A-Z_a.z~"
+        );
+        assert_eq!(crate::sources::openrice::percent_encode(""), "");
+    }
+
+    #[cfg(feature = "source-openrice")]
+    #[test]
+    fn openrice_item_defaults_missing_fields() {
+        let value = serde_json::json!({ "name": "  Cafe  " });
+        let item = crate::sources::openrice::item_value(&value);
+        assert_eq!(item.name, "Cafe");
+        assert_eq!(item.address, "");
+        assert_eq!(item.district, "");
+        assert!(item.categories.is_empty());
+        assert_eq!(item.score, None);
+        assert_eq!(item.review_count, 0);
+        assert!(!item.open_now);
+        assert_eq!(item.url, "");
+    }
+
+    #[cfg(feature = "source-openrice")]
+    #[test]
+    fn openrice_hides_zero_scores() {
+        let value = serde_json::json!({
+            "name": "New Place",
+            "scoreOverall": 0.0,
+            "urlUI": ""
+        });
+        let item = crate::sources::openrice::item_value(&value);
+        assert_eq!(item.score, None);
+        assert_eq!(item.url, "");
+    }
+
+    #[cfg(feature = "source-foodpanda")]
+    #[test]
+    fn foodpanda_item_reads_cuisine_shapes_and_falls_back_to_code_url() {
+        let value = serde_json::json!({
+            "code": "abc123",
+            "name": "Noodle House",
+            "address": "3 Test Street",
+            "cuisines": ["Thai", { "name": "Noodles" }, { "title": "Curry" }],
+            "rating": 4.2,
+            "review_number": 7,
+            "budget": 100,
+            "minimum_order_amount": 50.0,
+            "minimum_delivery_fee": 5.5,
+            "minimum_delivery_time": 25.0,
+            "distance": 1.234,
+            "web_path": null
+        });
+        let item = crate::sources::foodpanda::item_value(&value);
+        assert_eq!(item.code, "abc123");
+        assert_eq!(item.cuisines, vec!["Thai", "Noodles", "Curry"]);
+        assert_eq!(item.rating, Some(4.2));
+        assert_eq!(item.review_count, 7);
+        assert_eq!(item.budget, Some(100));
+        assert_eq!(item.minimum_order, Some(50.0));
+        assert_eq!(item.delivery_fee, Some(5.5));
+        assert_eq!(item.delivery_minutes, Some(25.0));
+        assert_eq!(item.distance_km, Some(1.234));
+        assert_eq!(item.url, "https://foodpanda.hk/restaurant/abc123");
+    }
+
+    #[cfg(feature = "source-foodpanda")]
+    #[test]
+    fn foodpanda_defaults_missing_metrics() {
+        let value = serde_json::json!({ "code": "x", "name": "Place", "rating": 0.0 });
+        let item = crate::sources::foodpanda::item_value(&value);
+        assert_eq!(item.rating, None);
+        assert_eq!(item.review_count, 0);
+        assert_eq!(item.budget, None);
+        assert_eq!(item.minimum_order, None);
+        assert_eq!(item.distance_km, None);
+        assert!(item.cuisines.is_empty());
+    }
+
+    #[test]
+    fn filters_licences_by_district_address_and_type_code() {
+        let mut report = LicenceReport {
+            generation_date: "2026-11-21".into(),
+            count: 2,
+            restaurants: vec![
+                Licence {
+                    licence_no: "1".into(),
+                    name: "Jade Garden".into(),
+                    address: "1 Queensway".into(),
+                    district: "Central/Western".into(),
+                    licence_type: "General Restaurant Licence".into(),
+                    licence_type_code: "RL".into(),
+                    expiry_date: "2027-01-01".into(),
+                    info: String::new(),
+                },
+                Licence {
+                    licence_no: "2".into(),
+                    name: "Corner Cafe".into(),
+                    address: "2 Nathan Road".into(),
+                    district: "Yau Tsim".into(),
+                    licence_type: "Light Refreshment Restaurant Licence".into(),
+                    licence_type_code: "RR".into(),
+                    expiry_date: "2027-01-01".into(),
+                    info: String::new(),
+                },
+            ],
+        };
+        filter_licences(&mut report, None, Some("YAU TSIM"), None);
+        assert_eq!(report.count, 1);
+        assert_eq!(report.restaurants[0].name, "Corner Cafe");
+
+        filter_licences(&mut report, Some("nathan"), None, None);
+        assert_eq!(report.count, 1);
+
+        filter_licences(&mut report, None, None, Some("rl"));
+        assert_eq!(report.count, 0);
+    }
 }

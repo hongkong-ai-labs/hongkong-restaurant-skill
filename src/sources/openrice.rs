@@ -37,7 +37,7 @@ pub async fn search(client: &Client, query: &str, limit: usize) -> Result<Vec<Op
     Ok(out)
 }
 
-fn item_value(item: &serde_json::Value) -> OpenRiceRestaurant {
+pub(crate) fn item_value(item: &serde_json::Value) -> OpenRiceRestaurant {
     let categories = item
         .get("categories")
         .and_then(serde_json::Value::as_array)
@@ -94,7 +94,7 @@ fn text(value: &serde_json::Value, key: &str) -> String {
         .to_string()
 }
 
-fn percent_encode(value: &str) -> String {
+pub(crate) fn percent_encode(value: &str) -> String {
     value
         .bytes()
         .map(|byte| match byte {
