@@ -3,6 +3,7 @@
 mod api;
 mod mcp;
 mod render;
+mod sources;
 
 use anyhow::{Result, bail};
 use clap::{Parser, Subcommand};

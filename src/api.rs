@@ -1,14 +1,8 @@
-//! Restaurant data clients.
+//! Restaurant models and source orchestration.
 //!
-//! Three very different sources are joined behind one CLI:
-//!
-//! - **FEHD restaurant licences** (official, stable XML),
-//! - **OpenRice search** (public JSON endpoint used by the website),
-//! - **Foodpanda nearby vendors** (public Delivery Hero listing endpoint).
-//!
-//! OpenRice and Foodpanda are undocumented consumer endpoints, not partner
-//! APIs. They can change without notice and remain subject to each platform's
-//! terms. Keeta has no public consumer API, so it is not scraped here.
+//! FEHD, OpenRice and Foodpanda each live in `src/sources/` behind a Cargo
+//! feature. OpenRice and Foodpanda are undocumented consumer endpoints, not
+//! partner APIs; they remain subject to each platform's terms.
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -17,10 +11,6 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-const FEHD_URL: &str =
-    "https://www.fehd.gov.hk/english/licensing/license/text/LP_Restaurants_EN.XML";
-const OPENRICE_URL: &str = "https://www.openrice.com/api/pois";
-const FOODPANDA_URL: &str = "https://disco.deliveryhero.io/listing/api/v1/pandora/vendors";
 const BROWSER_AGENT: &str = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0 Safari/537.36";
 
 /// One FEHD licensed restaurant.
@@ -77,56 +67,6 @@ pub struct FoodpandaRestaurant {
     pub url: String,
 }
 
-#[derive(Debug, Deserialize)]
-struct FehdDoc {
-    #[serde(rename = "GENERATION_DATE", default)]
-    generation_date: String,
-    #[serde(rename = "TYPE_CODE", default)]
-    type_codes: Codes,
-    #[serde(rename = "DIST_CODE", default)]
-    district_codes: Codes,
-    #[serde(rename = "LPS", default)]
-    lps: Lps,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct Codes {
-    #[serde(rename = "CODE", default)]
-    codes: Vec<Code>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct Code {
-    #[serde(rename = "@ID", default)]
-    id: String,
-    #[serde(rename = "$text", default)]
-    text: String,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct Lps {
-    #[serde(rename = "LP", default)]
-    records: Vec<Lp>,
-}
-
-#[derive(Debug, Default, Deserialize)]
-struct Lp {
-    #[serde(rename = "TYPE", default)]
-    licence_type: String,
-    #[serde(rename = "DIST", default)]
-    district: String,
-    #[serde(rename = "LICNO", default)]
-    licence_no: String,
-    #[serde(rename = "SS", default)]
-    name: String,
-    #[serde(rename = "ADR", default)]
-    address: String,
-    #[serde(rename = "INFO", default)]
-    info: String,
-    #[serde(rename = "EXPDATE", default)]
-    expiry: String,
-}
-
 /// Cached restaurant client.
 pub struct Client {
     http: reqwest::Client,
@@ -145,11 +85,14 @@ impl Client {
         })
     }
 
-    async fn get_text(&self, key: &str, url: &str, ttl: Duration) -> Result<String> {
+    // Used by the compiled-in source modules.
+    #[allow(dead_code)]
+    pub(crate) async fn get_text(&self, key: &str, url: &str, ttl: Duration) -> Result<String> {
         self.get_text_with(key, url, ttl, &[]).await
     }
 
-    async fn get_text_with(
+    #[allow(dead_code)]
+    pub(crate) async fn get_text_with(
         &self,
         key: &str,
         url: &str,
@@ -188,85 +131,25 @@ impl Client {
 
     /// Fetch and parse the official FEHD restaurant-licence XML.
     pub async fn licences(&self) -> Result<LicenceReport> {
-        let body = self
-            .get_text("fehd", FEHD_URL, Duration::from_secs(6 * 3600))
-            .await?;
-        let doc: FehdDoc =
-            quick_xml::de::from_str(&body).context("parsing FEHD restaurant licences")?;
-        let types: HashMap<String, String> = doc
-            .type_codes
-            .codes
-            .into_iter()
-            .map(|code| (code.id, code.text.trim().to_string()))
-            .collect();
-        let districts: HashMap<String, String> = doc
-            .district_codes
-            .codes
-            .into_iter()
-            .map(|code| (code.id, code.text.trim().to_string()))
-            .collect();
-        let mut restaurants: Vec<Licence> = doc
-            .lps
-            .records
-            .into_iter()
-            .filter(|record| !record.name.trim().is_empty())
-            .map(|record| Licence {
-                licence_no: record.licence_no.trim().to_string(),
-                name: record.name.trim().to_string(),
-                address: record
-                    .address
-                    .split_whitespace()
-                    .collect::<Vec<_>>()
-                    .join(" "),
-                district: districts
-                    .get(&record.district)
-                    .cloned()
-                    .unwrap_or(record.district),
-                licence_type: types
-                    .get(&record.licence_type)
-                    .cloned()
-                    .unwrap_or(record.licence_type.clone()),
-                licence_type_code: record.licence_type,
-                expiry_date: record.expiry.trim().to_string(),
-                info: record.info.trim().to_string(),
-            })
-            .collect();
-        restaurants.sort_by(|left, right| left.name.cmp(&right.name));
-        Ok(LicenceReport {
-            generation_date: doc.generation_date.trim().to_string(),
-            count: restaurants.len(),
-            restaurants,
-        })
+        #[cfg(feature = "source-fehd")]
+        {
+            return crate::sources::fehd::licences(self).await;
+        }
+        #[cfg(not(feature = "source-fehd"))]
+        bail!("FEHD source is not compiled into this binary")
     }
 
     /// Search OpenRice's public restaurant JSON.
     pub async fn openrice(&self, query: &str, limit: usize) -> Result<Vec<OpenRiceRestaurant>> {
-        let want = limit.clamp(1, 150);
-        let mut out = Vec::new();
-        let mut page = 1;
-        while out.len() < want && page <= 10 {
-            let url = format!(
-                "{OPENRICE_URL}?uiLang=en&uiCity=hongkong&page={page}&sortBy=Default&what={}",
-                percent_encode(query)
-            );
-            let body = self.get_text(&url, &url, Duration::from_secs(300)).await?;
-            let value: serde_json::Value =
-                serde_json::from_str(&body).context("decoding OpenRice search")?;
-            let results = value
-                .pointer("/searchResult/paginationResult/results")
-                .and_then(serde_json::Value::as_array)
-                .cloned()
-                .unwrap_or_default();
-            if results.is_empty() {
-                break;
-            }
-            for item in &results {
-                out.push(openrice_item(item));
-            }
-            page += 1;
+        #[cfg(feature = "source-openrice")]
+        {
+            return crate::sources::openrice::search(self, query, limit).await;
         }
-        out.truncate(want);
-        Ok(out)
+        #[cfg(not(feature = "source-openrice"))]
+        {
+            let _ = (query, limit);
+            bail!("OpenRice source is not compiled into this binary")
+        }
     }
 
     /// List Foodpanda vendors delivering near a coordinate.
@@ -277,166 +160,17 @@ impl Client {
         query: Option<&str>,
         limit: usize,
     ) -> Result<Vec<FoodpandaRestaurant>> {
-        let want = limit.clamp(1, 48);
-        let url = format!(
-            "{FOODPANDA_URL}?latitude={latitude}&longitude={longitude}&language_id=1&country=hk\
-             &vertical=restaurants&customer_type=regular&configuration=Original&dynamic_pricing=0\
-             &include=characteristics&limit={want}&offset=0"
-        );
-        let body = self
-            .get_text_with(
-                &url,
-                &url,
-                Duration::from_secs(120),
-                &[("x-disco-client-id", "web")],
-            )
-            .await?;
-        let value: serde_json::Value =
-            serde_json::from_str(&body).context("decoding Foodpanda listing")?;
-        let items = value
-            .pointer("/data/items")
-            .and_then(serde_json::Value::as_array)
-            .cloned()
-            .unwrap_or_default();
-        let needle = query.map(|value| value.to_lowercase());
-        let mut out: Vec<FoodpandaRestaurant> = items
-            .iter()
-            .map(foodpanda_item)
-            .filter(|vendor| {
-                let Some(needle) = &needle else {
-                    return true;
-                };
-                vendor.name.to_lowercase().contains(needle)
-                    || vendor
-                        .cuisines
-                        .iter()
-                        .any(|cuisine| cuisine.to_lowercase().contains(needle))
-            })
-            .collect();
-        out.truncate(want);
-        Ok(out)
+        #[cfg(feature = "source-foodpanda")]
+        {
+            return crate::sources::foodpanda::nearby(self, latitude, longitude, query, limit)
+                .await;
+        }
+        #[cfg(not(feature = "source-foodpanda"))]
+        {
+            let _ = (latitude, longitude, query, limit);
+            bail!("Foodpanda source is not compiled into this binary")
+        }
     }
-}
-
-fn openrice_item(item: &serde_json::Value) -> OpenRiceRestaurant {
-    let categories = item
-        .get("categories")
-        .and_then(serde_json::Value::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|category| category.get("name").and_then(serde_json::Value::as_str))
-                .map(ToOwned::to_owned)
-                .collect()
-        })
-        .unwrap_or_default();
-    let path = item
-        .get("urlUI")
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default();
-    OpenRiceRestaurant {
-        name: text(item, "name"),
-        name_other_lang: text(item, "nameOtherLang"),
-        address: text(item, "address"),
-        address_other_lang: text(item, "addressOtherLang"),
-        district: item
-            .pointer("/district/name")
-            .and_then(serde_json::Value::as_str)
-            .unwrap_or_default()
-            .to_string(),
-        categories,
-        score: item
-            .get("scoreOverall")
-            .and_then(serde_json::Value::as_f64)
-            .filter(|score| *score > 0.0),
-        review_count: item
-            .get("reviewCount")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0),
-        price: text(item, "priceUI"),
-        open_now: item
-            .get("openNow")
-            .and_then(serde_json::Value::as_bool)
-            .unwrap_or(false),
-        url: if path.is_empty() {
-            String::new()
-        } else {
-            format!("https://www.openrice.com{path}")
-        },
-    }
-}
-
-fn foodpanda_item(item: &serde_json::Value) -> FoodpandaRestaurant {
-    let cuisines = item
-        .get("cuisines")
-        .and_then(serde_json::Value::as_array)
-        .map(|values| {
-            values
-                .iter()
-                .filter_map(|cuisine| {
-                    cuisine
-                        .get("name")
-                        .or_else(|| cuisine.get("title"))
-                        .and_then(serde_json::Value::as_str)
-                        .or_else(|| cuisine.as_str())
-                })
-                .map(ToOwned::to_owned)
-                .collect()
-        })
-        .unwrap_or_default();
-    let code = text(item, "code");
-    FoodpandaRestaurant {
-        name: text(item, "name"),
-        address: text(item, "address"),
-        cuisines,
-        rating: item
-            .get("rating")
-            .and_then(serde_json::Value::as_f64)
-            .filter(|rating| *rating > 0.0),
-        review_count: item
-            .get("review_number")
-            .and_then(serde_json::Value::as_u64)
-            .unwrap_or(0),
-        budget: item.get("budget").and_then(serde_json::Value::as_u64),
-        minimum_order: item
-            .get("minimum_order_amount")
-            .and_then(serde_json::Value::as_f64),
-        delivery_fee: item
-            .get("minimum_delivery_fee")
-            .and_then(serde_json::Value::as_f64),
-        delivery_minutes: item
-            .get("minimum_delivery_time")
-            .and_then(serde_json::Value::as_f64),
-        distance_km: item.get("distance").and_then(serde_json::Value::as_f64),
-        url: item
-            .get("web_path")
-            .and_then(serde_json::Value::as_str)
-            .map(ToOwned::to_owned)
-            .unwrap_or_else(|| format!("https://foodpanda.hk/restaurant/{code}")),
-        code,
-    }
-}
-
-fn text(value: &serde_json::Value, key: &str) -> String {
-    value
-        .get(key)
-        .and_then(serde_json::Value::as_str)
-        .unwrap_or_default()
-        .trim()
-        .to_string()
-}
-
-fn percent_encode(value: &str) -> String {
-    value
-        .bytes()
-        .map(|byte| match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                (byte as char).to_string()
-            }
-            b' ' => "+".to_string(),
-            other => format!("%{other:02X}"),
-        })
-        .collect()
 }
 
 /// Filter the licence list by name/address, district and licence type.
@@ -477,22 +211,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn parses_fehd_xml() {
-        let xml = r#"<?xml version="1.0"?><DATA>
-            <GENERATION_DATE>2026-11-21</GENERATION_DATE>
-            <TYPE_CODE><CODE ID="RL">General Restaurant Licence</CODE></TYPE_CODE>
-            <DIST_CODE><CODE ID="11">Eastern</CODE></DIST_CODE>
-            <LPS><LP><TYPE>RL</TYPE><DIST>11</DIST><LICNO>123</LICNO>
-            <SS>Test Kitchen</SS><ADR>1 Test Road</ADR><INFO></INFO>
-            <EXPDATE>2027-01-01</EXPDATE></LP></LPS></DATA>"#;
-        let doc: FehdDoc = quick_xml::de::from_str(xml).unwrap();
-        assert_eq!(doc.generation_date, "2026-11-21");
-        assert_eq!(doc.lps.records.len(), 1);
-        assert_eq!(doc.lps.records[0].name, "Test Kitchen");
-        assert_eq!(doc.type_codes.codes[0].text, "General Restaurant Licence");
-    }
-
-    #[test]
     fn filters_licences() {
         let mut report = LicenceReport {
             generation_date: "2026-11-21".into(),
@@ -526,12 +244,17 @@ mod tests {
         assert_eq!(report.count, 0);
     }
 
+    #[cfg(feature = "source-openrice")]
     #[test]
     fn encodes_queries() {
-        assert_eq!(percent_encode("dim sum"), "dim+sum");
-        assert_eq!(percent_encode("a/b"), "a%2Fb");
+        assert_eq!(
+            crate::sources::openrice::percent_encode("dim sum"),
+            "dim+sum"
+        );
+        assert_eq!(crate::sources::openrice::percent_encode("a/b"), "a%2Fb");
     }
 
+    #[cfg(feature = "source-openrice")]
     #[test]
     fn parses_openrice_item() {
         let value: serde_json::Value = serde_json::from_str(
@@ -540,25 +263,30 @@ mod tests {
                 "priceUI":"$101-200","openNow":true,"urlUI":"/en/hongkong/r-sushi-n"}"#,
         )
         .unwrap();
-        let item = openrice_item(&value);
+        let item = crate::sources::openrice::item_value(&value);
         assert_eq!(item.name, "Sushi N");
         assert_eq!(item.district, "Tsim Sha Tsui");
         assert_eq!(item.categories, vec!["Japanese"]);
         assert!(item.url.starts_with("https://www.openrice.com/"));
     }
 
+    #[cfg(feature = "source-openrice")]
     #[test]
     fn encodes_unicode_and_reserved_bytes() {
-        assert_eq!(percent_encode("é"), "%C3%A9");
-        assert_eq!(percent_encode("a&b"), "a%26b");
-        assert_eq!(percent_encode("A-Z_a.z~"), "A-Z_a.z~");
-        assert_eq!(percent_encode(""), "");
+        assert_eq!(crate::sources::openrice::percent_encode("é"), "%C3%A9");
+        assert_eq!(crate::sources::openrice::percent_encode("a&b"), "a%26b");
+        assert_eq!(
+            crate::sources::openrice::percent_encode("A-Z_a.z~"),
+            "A-Z_a.z~"
+        );
+        assert_eq!(crate::sources::openrice::percent_encode(""), "");
     }
 
+    #[cfg(feature = "source-openrice")]
     #[test]
     fn openrice_item_defaults_missing_fields() {
         let value = serde_json::json!({ "name": "  Cafe  " });
-        let item = openrice_item(&value);
+        let item = crate::sources::openrice::item_value(&value);
         assert_eq!(item.name, "Cafe");
         assert_eq!(item.address, "");
         assert_eq!(item.district, "");
@@ -569,6 +297,7 @@ mod tests {
         assert_eq!(item.url, "");
     }
 
+    #[cfg(feature = "source-openrice")]
     #[test]
     fn openrice_hides_zero_scores() {
         let value = serde_json::json!({
@@ -576,11 +305,12 @@ mod tests {
             "scoreOverall": 0.0,
             "urlUI": ""
         });
-        let item = openrice_item(&value);
+        let item = crate::sources::openrice::item_value(&value);
         assert_eq!(item.score, None);
         assert_eq!(item.url, "");
     }
 
+    #[cfg(feature = "source-foodpanda")]
     #[test]
     fn foodpanda_item_reads_cuisine_shapes_and_falls_back_to_code_url() {
         let value = serde_json::json!({
@@ -597,7 +327,7 @@ mod tests {
             "distance": 1.234,
             "web_path": null
         });
-        let item = foodpanda_item(&value);
+        let item = crate::sources::foodpanda::item_value(&value);
         assert_eq!(item.code, "abc123");
         assert_eq!(item.cuisines, vec!["Thai", "Noodles", "Curry"]);
         assert_eq!(item.rating, Some(4.2));
@@ -610,10 +340,11 @@ mod tests {
         assert_eq!(item.url, "https://foodpanda.hk/restaurant/abc123");
     }
 
+    #[cfg(feature = "source-foodpanda")]
     #[test]
     fn foodpanda_defaults_missing_metrics() {
         let value = serde_json::json!({ "code": "x", "name": "Place", "rating": 0.0 });
-        let item = foodpanda_item(&value);
+        let item = crate::sources::foodpanda::item_value(&value);
         assert_eq!(item.rating, None);
         assert_eq!(item.review_count, 0);
         assert_eq!(item.budget, None);
